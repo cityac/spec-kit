@@ -65,7 +65,9 @@ function Get-HighestNumberFromSpecs {
     $highest = 0
     if (Test-Path $SpecsDir) {
         Get-ChildItem -Path $SpecsDir -Directory | ForEach-Object {
-            if ($_.Name -match '^(\d+)') {
+            # Strip optional acronym prefix (e.g., "URA-" from "URA-001-name")
+            $dirName = $_.Name -replace '^[A-Z]{2,5}-', ''
+            if ($dirName -match '^(\d+)') {
                 $num = [int]$matches[1]
                 if ($num -gt $highest) { $highest = $num }
             }
@@ -85,6 +87,11 @@ function Get-HighestNumberFromBranches {
                 # Clean branch name: remove leading markers and remote prefixes
                 $cleanBranch = $branch.Trim() -replace '^\*?\s+', '' -replace '^remotes/[^/]+/', ''
                 
+                # Strip feature/ prefix if present
+                $cleanBranch = $cleanBranch -replace '^feature/', ''
+                # Strip optional acronym prefix (e.g., "URA-" from "URA-001-name")
+                $cleanBranch = $cleanBranch -replace '^[A-Z]{2,5}-', ''
+
                 # Extract feature number if branch matches pattern ###-*
                 if ($cleanBranch -match '^(\d+)-') {
                     $num = [int]$matches[1]
@@ -126,9 +133,63 @@ function Get-NextBranchNumber {
 
 function ConvertTo-CleanBranchName {
     param([string]$Name)
-    
+
     return $Name.ToLower() -replace '[^a-z0-9]', '-' -replace '-{2,}', '-' -replace '^-', '' -replace '-$', ''
 }
+
+function Get-ProjectAcronym {
+    param([string]$RepoRoot)
+
+    $constitution = Join-Path $RepoRoot '.specify/memory/constitution.md'
+    if (-not (Test-Path $constitution)) {
+        return ''
+    }
+
+    $content = Get-Content $constitution -Raw
+
+    # Try to extract project_acronym from YAML front matter
+    if ($content -match '(?ms)\A---\s*\n(.*?)\n---') {
+        $frontMatter = $matches[1]
+        if ($frontMatter -match 'project_acronym:\s*"?([^"\n]+)"?') {
+            $acronym = $matches[1].Trim().Trim('"').Trim("'")
+            if ($acronym -and $acronym -ne '[PROJECT_ACRONYM]') {
+                return $acronym
+            }
+        }
+    }
+
+    # Fallback: derive from H1 heading
+    $lines = Get-Content $constitution
+    $heading = ''
+    foreach ($line in $lines) {
+        if ($line -match '^# (.+)') {
+            $heading = $matches[1].Trim()
+            break
+        }
+    }
+
+    if (-not $heading) {
+        return ''
+    }
+
+    # Remove trailing "Constitution"
+    $heading = $heading -replace '\s*Constitution\s*$', ''
+
+    $words = ($heading.Trim() -split '\s+') | Where-Object { $_ }
+
+    if ($words.Count -eq 1) {
+        # Single word: first 3 letters uppercased
+        $word = $words[0].ToUpper()
+        return $word.Substring(0, [Math]::Min(3, $word.Length))
+    } elseif ($words.Count -ge 2) {
+        # Multiple words: first letter of each word
+        $acronym = ($words | ForEach-Object { $_[0] }) -join ''
+        return $acronym.ToUpper()
+    }
+
+    return ''
+}
+
 $fallbackRoot = (Find-RepositoryRoot -StartDir $PSScriptRoot)
 if (-not $fallbackRoot) {
     Write-Error "Error: Could not determine repository root. Please run this script from within the repository."
@@ -218,24 +279,40 @@ if ($Number -eq 0) {
 }
 
 $featureNum = ('{0:000}' -f $Number)
-$branchName = "$featureNum-$branchSuffix"
+
+# Get project acronym from constitution
+$projectAcronym = Get-ProjectAcronym -RepoRoot $repoRoot
+
+if ($projectAcronym) {
+    $branchName = "feature/$projectAcronym-$featureNum-$branchSuffix"
+} else {
+    $branchName = "feature/$featureNum-$branchSuffix"
+}
 
 # GitHub enforces a 244-byte limit on branch names
 # Validate and truncate if necessary
 $maxBranchLength = 244
 if ($branchName.Length -gt $maxBranchLength) {
-    # Calculate how much we need to trim from suffix
-    # Account for: feature number (3) + hyphen (1) = 4 chars
-    $maxSuffixLength = $maxBranchLength - 4
-    
+    # Calculate prefix length: "feature/" (8) + optional acronym + hyphen + feature number (3) + hyphen (1)
+    if ($projectAcronym) {
+        $prefixLength = 8 + $projectAcronym.Length + 1 + 3 + 1
+    } else {
+        $prefixLength = 8 + 3 + 1
+    }
+    $maxSuffixLength = $maxBranchLength - $prefixLength
+
     # Truncate suffix
     $truncatedSuffix = $branchSuffix.Substring(0, [Math]::Min($branchSuffix.Length, $maxSuffixLength))
     # Remove trailing hyphen if truncation created one
     $truncatedSuffix = $truncatedSuffix -replace '-$', ''
-    
+
     $originalBranchName = $branchName
-    $branchName = "$featureNum-$truncatedSuffix"
-    
+    if ($projectAcronym) {
+        $branchName = "feature/$projectAcronym-$featureNum-$truncatedSuffix"
+    } else {
+        $branchName = "feature/$featureNum-$truncatedSuffix"
+    }
+
     Write-Warning "[specify] Branch name exceeded GitHub's 244-byte limit"
     Write-Warning "[specify] Original: $originalBranchName ($($originalBranchName.Length) bytes)"
     Write-Warning "[specify] Truncated to: $branchName ($($branchName.Length) bytes)"
@@ -251,25 +328,28 @@ if ($hasGit) {
     Write-Warning "[specify] Warning: Git repository not detected; skipped branch creation for $branchName"
 }
 
-$featureDir = Join-Path $specsDir $branchName
+# Strip feature/ prefix for spec directory name (avoids specs/feature/ nesting)
+$specDirName = $branchName -replace '^feature/', ''
+$featureDir = Join-Path $specsDir $specDirName
 New-Item -ItemType Directory -Path $featureDir -Force | Out-Null
 
 $template = Join-Path $repoRoot '.specify/templates/spec-template.md'
 $specFile = Join-Path $featureDir 'spec.md'
-if (Test-Path $template) { 
-    Copy-Item $template $specFile -Force 
-} else { 
-    New-Item -ItemType File -Path $specFile | Out-Null 
+if (Test-Path $template) {
+    Copy-Item $template $specFile -Force
+} else {
+    New-Item -ItemType File -Path $specFile | Out-Null
 }
 
 # Set the SPECIFY_FEATURE environment variable for the current session
 $env:SPECIFY_FEATURE = $branchName
 
 if ($Json) {
-    $obj = [PSCustomObject]@{ 
+    $obj = [PSCustomObject]@{
         BRANCH_NAME = $branchName
         SPEC_FILE = $specFile
         FEATURE_NUM = $featureNum
+        PROJECT_ACRONYM = $projectAcronym
         HAS_GIT = $hasGit
     }
     $obj | ConvertTo-Json -Compress
@@ -277,6 +357,7 @@ if ($Json) {
     Write-Output "BRANCH_NAME: $branchName"
     Write-Output "SPEC_FILE: $specFile"
     Write-Output "FEATURE_NUM: $featureNum"
+    Write-Output "PROJECT_ACRONYM: $projectAcronym"
     Write-Output "HAS_GIT: $hasGit"
     Write-Output "SPECIFY_FEATURE environment variable set to: $branchName"
 }

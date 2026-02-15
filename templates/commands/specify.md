@@ -27,6 +27,12 @@ The text the user typed after `/speckit.specify` in the triggering message **is*
 
 Given that feature description, do this:
 
+0. **Constitution pre-check**:
+   Before proceeding, check if `.specify/memory/constitution.md` has its identity fields populated:
+   - Read the YAML frontmatter and check that `project_name` and `project_acronym` are set to real values (not `[PROJECT_NAME]` / `[PROJECT_ACRONYM]` placeholders)
+   - If either field is still a placeholder, run the full `/speckit.constitution` flow first
+   - Once both fields are populated, continue with step 1
+
 1. **Generate a concise short name** (2-4 words) for the branch:
    - Analyze the feature description and extract the most meaningful keywords
    - Create a 2-4 word short name that captures the essence of the feature
@@ -48,9 +54,9 @@ Given that feature description, do this:
       ```
 
    b. Find the highest feature number across all sources for the short-name:
-      - Remote branches: `git ls-remote --heads origin | grep -E 'refs/heads/[0-9]+-<short-name>$'`
-      - Local branches: `git branch | grep -E '^[* ]*[0-9]+-<short-name>$'`
-      - Specs directories: Check for directories matching `specs/[0-9]+-<short-name>`
+      - Remote branches: `git ls-remote --heads origin | grep -E 'refs/heads/feature/([A-Z]+-)?[0-9]+-<short-name>$'`
+      - Local branches: `git branch | grep -E '^[* ]*(feature/)?([A-Z]+-)?[0-9]+-<short-name>$'`
+      - Specs directories: Check for directories matching `specs/([A-Z]+-)?[0-9]+-<short-name>`
 
    c. Determine the next available number:
       - Extract all numbers from all three sources

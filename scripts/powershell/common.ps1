@@ -40,7 +40,9 @@ function Get-CurrentBranch {
         $highest = 0
         
         Get-ChildItem -Path $specsDir -Directory | ForEach-Object {
-            if ($_.Name -match '^(\d{3})-') {
+            # Match both "001-name" and "ACR-001-name" directory patterns
+            $dirName = $_.Name -replace '^[A-Z]{2,5}-', ''
+            if ($dirName -match '^(\d{3})-') {
                 $num = [int]$matches[1]
                 if ($num -gt $highest) {
                     $highest = $num
@@ -79,9 +81,9 @@ function Test-FeatureBranch {
         return $true
     }
     
-    if ($Branch -notmatch '^[0-9]{3}-') {
+    if ($Branch -notmatch '^(feature/([A-Z]+-)?)?[0-9]{3}-') {
         Write-Output "ERROR: Not on a feature branch. Current branch: $Branch"
-        Write-Output "Feature branches should be named like: 001-feature-name"
+        Write-Output "Feature branches should be named like: feature/001-feature-name or feature/URA-001-feature-name"
         return $false
     }
     return $true
@@ -89,7 +91,8 @@ function Test-FeatureBranch {
 
 function Get-FeatureDir {
     param([string]$RepoRoot, [string]$Branch)
-    Join-Path $RepoRoot "specs/$Branch"
+    $dir = $Branch -replace '^feature/', ''
+    Join-Path $RepoRoot "specs/$dir"
 }
 
 function Get-FeaturePathsEnv {

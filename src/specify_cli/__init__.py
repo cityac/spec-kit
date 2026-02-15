@@ -234,6 +234,29 @@ AGENT_CONFIG = {
     },
 }
 
+# Agent command config: maps agent -> (command_folder, file_extension, arg_token)
+# Used by extract_template_from_local() to generate agent-specific command files.
+AGENT_COMMAND_CONFIG = {
+    "claude":       (".claude/commands",       "md",       "$ARGUMENTS"),
+    "gemini":       (".gemini/commands",        "toml",     "{{args}}"),
+    "copilot":      (".github/agents",          "agent.md", "$ARGUMENTS"),
+    "cursor-agent": (".cursor/commands",        "md",       "$ARGUMENTS"),
+    "qwen":         (".qwen/commands",          "toml",     "{{args}}"),
+    "opencode":     (".opencode/command",        "md",       "$ARGUMENTS"),
+    "windsurf":     (".windsurf/workflows",      "md",       "$ARGUMENTS"),
+    "codex":        (".codex/prompts",           "md",       "$ARGUMENTS"),
+    "kilocode":     (".kilocode/workflows",      "md",       "$ARGUMENTS"),
+    "auggie":       (".augment/commands",         "md",       "$ARGUMENTS"),
+    "roo":          (".roo/commands",             "md",       "$ARGUMENTS"),
+    "codebuddy":    (".codebuddy/commands",       "md",       "$ARGUMENTS"),
+    "qoder":        (".qoder/commands",           "md",       "$ARGUMENTS"),
+    "amp":          (".agents/commands",          "md",       "$ARGUMENTS"),
+    "shai":         (".shai/commands",            "md",       "$ARGUMENTS"),
+    "q":            (".amazonq/prompts",          "md",       "$ARGUMENTS"),
+    "agy":          (".agent/workflows",          "md",       "$ARGUMENTS"),
+    "bob":          (".bob/commands",             "md",       "$ARGUMENTS"),
+}
+
 SCRIPT_TYPE_CHOICES = {"sh": "POSIX Shell (bash/zsh)", "ps": "PowerShell"}
 
 CLAUDE_LOCAL_PATH = Path.home() / ".claude" / "local" / "claude"
@@ -247,7 +270,7 @@ BANNER = """
 ╚══════╝╚═╝     ╚══════╝ ╚═════╝╚═╝╚═╝        ╚═╝   
 """
 
-TAGLINE = "GitHub Spec Kit - Spec-Driven Development Toolkit"
+TAGLINE = "Forked GitHub Spec Kit - Spec-Driven Development Toolkit"
 class StepTracker:
     """Track and render hierarchical steps without emojis, similar to Claude Code tree output.
     Supports live auto-refresh via an attached refresh callback.
@@ -904,6 +927,256 @@ def download_and_extract_template(project_path: Path, ai_assistant: str, script_
     return project_path
 
 
+import re as _re
+
+def _rewrite_paths(text: str) -> str:
+    """Rewrite bare memory/, scripts/, templates/ paths to .specify/ equivalents."""
+    text = _re.sub(r'(/?)memory/', r'.specify/memory/', text)
+    text = _re.sub(r'(/?)scripts/', r'.specify/scripts/', text)
+    text = _re.sub(r'(/?)templates/', r'.specify/templates/', text)
+    text = text.replace('.specify.specify/', '.specify/')
+    return text
+
+
+def _parse_command_template(template_path: Path, script_variant: str) -> dict:
+    """Parse a command template file's YAML frontmatter and body.
+
+    Returns dict with keys: name, description, script_command, agent_script_command, body_raw.
+    """
+    name = template_path.stem
+    content = template_path.read_text(encoding="utf-8").replace("\r", "")
+
+    # Split frontmatter from body
+    parts = content.split("---", 2)
+    if len(parts) < 3:
+        # No proper frontmatter
+        return {"name": name, "description": "", "script_command": "", "agent_script_command": "", "body_raw": content}
+
+    frontmatter = parts[1]
+    body_after_frontmatter = parts[2]
+
+    # Extract description
+    description = ""
+    for line in frontmatter.splitlines():
+        if line.startswith("description:"):
+            description = line.split(":", 1)[1].strip()
+            break
+
+    # Extract script command from scripts: section
+    script_command = ""
+    in_scripts = False
+    for line in frontmatter.splitlines():
+        if _re.match(r'^scripts:\s*$', line):
+            in_scripts = True
+            continue
+        if in_scripts:
+            stripped = line.lstrip()
+            if stripped.startswith(f"{script_variant}:"):
+                script_command = stripped.split(":", 1)[1].strip()
+                break
+            # If we hit a non-indented line that's a new top-level key, stop
+            if line and not line[0].isspace():
+                in_scripts = False
+
+    # Extract agent_script command from agent_scripts: section
+    agent_script_command = ""
+    in_agent_scripts = False
+    for line in frontmatter.splitlines():
+        if _re.match(r'^agent_scripts:\s*$', line):
+            in_agent_scripts = True
+            continue
+        if in_agent_scripts:
+            stripped = line.lstrip()
+            if stripped.startswith(f"{script_variant}:"):
+                agent_script_command = stripped.split(":", 1)[1].strip()
+                break
+            if line and not line[0].isspace():
+                in_agent_scripts = False
+
+    # Remove scripts: and agent_scripts: sections from frontmatter
+    cleaned_fm_lines = []
+    skip_section = False
+    for line in frontmatter.splitlines():
+        if _re.match(r'^(scripts|agent_scripts):\s*$', line):
+            skip_section = True
+            continue
+        if skip_section:
+            if line and not line[0].isspace():
+                # New top-level key, stop skipping
+                skip_section = False
+                cleaned_fm_lines.append(line)
+            # else: still in indented sub-keys, skip
+            continue
+        cleaned_fm_lines.append(line)
+
+    cleaned_frontmatter = "\n".join(cleaned_fm_lines)
+    body_raw = f"---{cleaned_frontmatter}---{body_after_frontmatter}"
+
+    return {
+        "name": name,
+        "description": description,
+        "script_command": script_command or f"(Missing script command for {script_variant})",
+        "agent_script_command": agent_script_command,
+        "body_raw": body_raw,
+    }
+
+
+def _generate_command_file(parsed: dict, agent: str, ext: str, arg_format: str, output_dir: Path) -> None:
+    """Generate a single agent command file from a parsed command template."""
+    body = parsed["body_raw"]
+
+    # Replace {SCRIPT} placeholder
+    body = body.replace("{SCRIPT}", parsed["script_command"])
+
+    # Replace {AGENT_SCRIPT} placeholder
+    if parsed["agent_script_command"]:
+        body = body.replace("{AGENT_SCRIPT}", parsed["agent_script_command"])
+
+    # Replace {ARGS} and __AGENT__
+    body = body.replace("{ARGS}", arg_format)
+    body = body.replace("__AGENT__", agent)
+
+    # Rewrite paths
+    body = _rewrite_paths(body)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    name = parsed["name"]
+
+    if ext == "toml":
+        body = body.replace("\\", "\\\\")
+        content = f'description = "{parsed["description"]}"\n\nprompt = """\n{body}\n"""\n'
+        (output_dir / f"speckit.{name}.{ext}").write_text(content, encoding="utf-8")
+    elif ext in ("md", "agent.md"):
+        (output_dir / f"speckit.{name}.{ext}").write_text(body, encoding="utf-8")
+
+
+def extract_template_from_local(
+    project_path: Path,
+    ai_assistant: str,
+    script_type: str,
+    source_dir: Path,
+    is_current_dir: bool = False,
+    tracker: StepTracker | None = None,
+) -> Path:
+    """Build a project from the local spec-kit source tree instead of downloading a release zip.
+
+    Replicates the logic of create-release-packages.sh's build_variant() and generate_commands().
+    """
+    if tracker:
+        tracker.start("local-copy", "copying from local source")
+
+    if not is_current_dir:
+        project_path.mkdir(parents=True, exist_ok=True)
+
+    spec_dir = project_path / ".specify"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+
+    # (a) Copy templates (excluding commands/ and vscode-settings.json)
+    src_templates = source_dir / "templates"
+    if src_templates.is_dir():
+        dest_templates = spec_dir / "templates"
+        dest_templates.mkdir(parents=True, exist_ok=True)
+        for item in src_templates.iterdir():
+            if item.is_file() and item.name != "vscode-settings.json":
+                dest_file = dest_templates / item.name
+                if dest_file.exists() and is_current_dir:
+                    pass  # will overwrite
+                shutil.copy2(item, dest_file)
+
+    # (b) Copy scripts (filtered by script_type)
+    src_scripts = source_dir / "scripts"
+    if src_scripts.is_dir():
+        dest_scripts = spec_dir / "scripts"
+        dest_scripts.mkdir(parents=True, exist_ok=True)
+        if script_type == "sh":
+            src_bash = src_scripts / "bash"
+            if src_bash.is_dir():
+                dest_bash = dest_scripts / "bash"
+                if dest_bash.exists():
+                    shutil.rmtree(dest_bash)
+                shutil.copytree(src_bash, dest_bash)
+        elif script_type == "ps":
+            src_ps = src_scripts / "powershell"
+            if src_ps.is_dir():
+                dest_ps = dest_scripts / "powershell"
+                if dest_ps.exists():
+                    shutil.rmtree(dest_ps)
+                shutil.copytree(src_ps, dest_ps)
+        # Copy any top-level script files
+        for item in src_scripts.iterdir():
+            if item.is_file():
+                shutil.copy2(item, dest_scripts / item.name)
+
+    # (c) Copy memory (if exists)
+    src_memory = source_dir / "memory"
+    if src_memory.is_dir():
+        dest_memory = spec_dir / "memory"
+        if dest_memory.exists():
+            # Merge: copy files that don't exist yet
+            for item in src_memory.rglob("*"):
+                if item.is_file():
+                    rel = item.relative_to(src_memory)
+                    dest_file = dest_memory / rel
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+                    if not dest_file.exists():
+                        shutil.copy2(item, dest_file)
+        else:
+            shutil.copytree(src_memory, dest_memory)
+
+    if tracker:
+        tracker.complete("local-copy", "templates, scripts, memory")
+
+    # (d) Generate agent command files
+    if tracker:
+        tracker.start("commands", "generating agent commands")
+
+    commands_dir = source_dir / "templates" / "commands"
+    if commands_dir.is_dir() and ai_assistant in AGENT_COMMAND_CONFIG:
+        folder, ext, arg_format = AGENT_COMMAND_CONFIG[ai_assistant]
+        output_dir = project_path / folder
+
+        for template_file in sorted(commands_dir.glob("*.md")):
+            parsed = _parse_command_template(template_file, script_type)
+            _generate_command_file(parsed, ai_assistant, ext, arg_format, output_dir)
+
+        if tracker:
+            tracker.complete("commands", f"{ai_assistant} -> {folder}")
+    else:
+        if tracker:
+            tracker.complete("commands", "no command templates found")
+
+    # (e) Copilot special handling
+    if ai_assistant == "copilot":
+        if tracker:
+            tracker.start("copilot-extras", "generating copilot prompts & vscode settings")
+
+        # Generate .github/prompts/speckit.{name}.prompt.md files
+        agents_dir = project_path / ".github" / "agents"
+        prompts_dir = project_path / ".github" / "prompts"
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+
+        for agent_file in sorted(agents_dir.glob("speckit.*.agent.md")):
+            basename = agent_file.name.replace(".agent.md", "")
+            prompt_file = prompts_dir / f"{basename}.prompt.md"
+            prompt_file.write_text(f"---\nagent: {basename}\n---\n", encoding="utf-8")
+
+        # Copy vscode-settings.json -> .vscode/settings.json
+        vscode_settings_src = source_dir / "templates" / "vscode-settings.json"
+        if vscode_settings_src.exists():
+            vscode_dir = project_path / ".vscode"
+            vscode_dir.mkdir(parents=True, exist_ok=True)
+            dest_settings = vscode_dir / "settings.json"
+            if dest_settings.exists():
+                handle_vscode_settings(vscode_settings_src, dest_settings, Path("settings.json"))
+            else:
+                shutil.copy2(vscode_settings_src, dest_settings)
+
+        if tracker:
+            tracker.complete("copilot-extras", "prompts + vscode settings")
+
+    return project_path
+
+
 def ensure_executable_scripts(project_path: Path, tracker: StepTracker | None = None) -> None:
     """Ensure POSIX .sh scripts under .specify/scripts (recursively) have execute bits (no-op on Windows)."""
     if os.name == "nt":
@@ -948,8 +1221,12 @@ def ensure_executable_scripts(project_path: Path, tracker: StepTracker | None = 
             for f in failures:
                 console.print(f"  - {f}")
 
-def ensure_constitution_from_template(project_path: Path, tracker: StepTracker | None = None) -> None:
-    """Copy constitution template to memory if it doesn't exist (preserves existing constitution on reinitialization)."""
+def ensure_constitution_from_template(project_path: Path, project_name: str, tracker: StepTracker | None = None) -> None:
+    """Copy constitution template to memory if it doesn't exist (preserves existing constitution on reinitialization).
+
+    Auto-fills identity fields (project name, acronym, version, dates) from the
+    project name so that only principle/section placeholders remain for the user.
+    """
     memory_constitution = project_path / ".specify" / "memory" / "constitution.md"
     template_constitution = project_path / ".specify" / "templates" / "constitution-template.md"
 
@@ -971,6 +1248,21 @@ def ensure_constitution_from_template(project_path: Path, tracker: StepTracker |
     try:
         memory_constitution.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(template_constitution, memory_constitution)
+
+        # Auto-fill identity fields
+        title = project_name.replace("-", " ").replace("_", " ").title()
+        words = title.split()
+        acronym = "".join(w[0] for w in words).upper() if len(words) > 1 else title[:3].upper()
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        content = memory_constitution.read_text()
+        content = content.replace("[PROJECT_NAME]", title)
+        content = content.replace("[PROJECT_ACRONYM]", acronym)
+        content = content.replace("[CONSTITUTION_VERSION]", "1.0.0")
+        content = content.replace("[RATIFICATION_DATE]", today)
+        content = content.replace("[LAST_AMENDED_DATE]", today)
+        memory_constitution.write_text(content)
+
         if tracker:
             tracker.add("constitution", "Constitution setup")
             tracker.complete("constitution", "copied from template")
@@ -995,6 +1287,7 @@ def init(
     skip_tls: bool = typer.Option(False, "--skip-tls", help="Skip SSL/TLS verification (not recommended)"),
     debug: bool = typer.Option(False, "--debug", help="Show verbose diagnostic output for network and extraction failures"),
     github_token: str = typer.Option(None, "--github-token", help="GitHub token to use for API requests (or set GH_TOKEN or GITHUB_TOKEN environment variable)"),
+    local: str = typer.Option(None, "--local", help="Use local spec-kit source directory instead of downloading from GitHub"),
 ):
     """
     Initialize a new Specify project from the latest template.
@@ -1019,6 +1312,7 @@ def init(
         specify init --here --ai codebuddy
         specify init --here
         specify init --here --force  # Skip confirmation when current directory not empty
+        specify init my-project --ai claude --script sh --local /path/to/spec-kit  # Use local fork
     """
 
     show_banner()
@@ -1132,6 +1426,18 @@ def init(
     console.print(f"[cyan]Selected AI assistant:[/cyan] {selected_ai}")
     console.print(f"[cyan]Selected script type:[/cyan] {selected_script}")
 
+    # Validate --local path if provided
+    local_path = None
+    if local:
+        local_path = Path(local).resolve()
+        if not local_path.is_dir():
+            console.print(f"[red]Error:[/red] Local source directory not found: {local_path}")
+            raise typer.Exit(1)
+        if not (local_path / "templates").is_dir() or not (local_path / "scripts").is_dir():
+            console.print(f"[red]Error:[/red] Local source directory must contain 'templates/' and 'scripts/' subdirectories: {local_path}")
+            raise typer.Exit(1)
+        console.print(f"[cyan]Using local source:[/cyan] {local_path}")
+
     tracker = StepTracker("Initialize Specify Project")
 
     sys._specify_tracker_active = True
@@ -1142,19 +1448,34 @@ def init(
     tracker.complete("ai-select", f"{selected_ai}")
     tracker.add("script-select", "Select script type")
     tracker.complete("script-select", selected_script)
-    for key, label in [
-        ("fetch", "Fetch latest release"),
-        ("download", "Download template"),
-        ("extract", "Extract template"),
-        ("zip-list", "Archive contents"),
-        ("extracted-summary", "Extraction summary"),
-        ("chmod", "Ensure scripts executable"),
-        ("constitution", "Constitution setup"),
-        ("cleanup", "Cleanup"),
-        ("git", "Initialize git repository"),
-        ("final", "Finalize")
-    ]:
-        tracker.add(key, label)
+
+    if local_path:
+        for key, label in [
+            ("local-copy", "Copy from local source"),
+            ("commands", "Generate agent commands"),
+            ("chmod", "Ensure scripts executable"),
+            ("constitution", "Constitution setup"),
+            ("git", "Initialize git repository"),
+            ("final", "Finalize")
+        ]:
+            tracker.add(key, label)
+        # Add copilot-extras step if copilot is selected
+        if selected_ai == "copilot":
+            tracker.add("copilot-extras", "Generate copilot prompts & vscode settings")
+    else:
+        for key, label in [
+            ("fetch", "Fetch latest release"),
+            ("download", "Download template"),
+            ("extract", "Extract template"),
+            ("zip-list", "Archive contents"),
+            ("extracted-summary", "Extraction summary"),
+            ("chmod", "Ensure scripts executable"),
+            ("constitution", "Constitution setup"),
+            ("cleanup", "Cleanup"),
+            ("git", "Initialize git repository"),
+            ("final", "Finalize")
+        ]:
+            tracker.add(key, label)
 
     # Track git error message outside Live context so it persists
     git_error_message = None
@@ -1162,15 +1483,18 @@ def init(
     with Live(tracker.render(), console=console, refresh_per_second=8, transient=True) as live:
         tracker.attach_refresh(lambda: live.update(tracker.render()))
         try:
-            verify = not skip_tls
-            local_ssl_context = ssl_context if verify else False
-            local_client = httpx.Client(verify=local_ssl_context)
+            if local_path:
+                extract_template_from_local(project_path, selected_ai, selected_script, local_path, is_current_dir=here, tracker=tracker)
+            else:
+                verify = not skip_tls
+                local_ssl_context = ssl_context if verify else False
+                local_client = httpx.Client(verify=local_ssl_context)
 
-            download_and_extract_template(project_path, selected_ai, selected_script, here, verbose=False, tracker=tracker, client=local_client, debug=debug, github_token=github_token)
+                download_and_extract_template(project_path, selected_ai, selected_script, here, verbose=False, tracker=tracker, client=local_client, debug=debug, github_token=github_token)
 
             ensure_executable_scripts(project_path, tracker=tracker)
 
-            ensure_constitution_from_template(project_path, tracker=tracker)
+            ensure_constitution_from_template(project_path, project_name, tracker=tracker)
 
             if not no_git:
                 tracker.start("git")
@@ -1283,6 +1607,51 @@ def init(
     enhancements_panel = Panel("\n".join(enhancement_lines), title="Enhancement Commands", border_style="cyan", padding=(1,2))
     console.print()
     console.print(enhancements_panel)
+
+@app.command("fork-init")
+def fork_init(
+    project_name: str = typer.Argument(None, help="Name for your new project directory (optional if using --here, or use '.' for current directory)"),
+    ai_assistant: str = typer.Option("claude", "--ai", help="AI assistant to use"),
+    script_type: str = typer.Option("sh", "--script", help="Script type to use: sh or ps"),
+    ignore_agent_tools: bool = typer.Option(False, "--ignore-agent-tools", help="Skip checks for AI agent tools"),
+    no_git: bool = typer.Option(False, "--no-git", help="Skip git repository initialization"),
+    here: bool = typer.Option(False, "--here", help="Initialize in current directory"),
+    force: bool = typer.Option(False, "--force", help="Force merge/overwrite when using --here"),
+    debug: bool = typer.Option(False, "--debug", help="Show verbose diagnostic output"),
+):
+    """Initialize a project from the local spec-kit fork (no GitHub download).
+
+    Shorthand for 'specify init --local <repo-root>'. The source path is
+    derived automatically from the editable install location.
+
+    Examples:
+        specify fork-init my-project --ai claude
+        specify fork-init . --ai claude --script sh
+        specify fork-init --here --ai copilot
+    """
+    # Derive the repo root from this file's location (editable install)
+    # __file__ = .../spec-kit/src/specify_cli/__init__.py  →  repo root is 3 levels up
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    if not (repo_root / "templates").is_dir():
+        console.print(f"[red]Error:[/red] Could not locate local spec-kit source tree (expected at {repo_root})")
+        console.print("[dim]fork-init only works with editable installs (uv tool install --editable)[/dim]")
+        raise typer.Exit(1)
+
+    # Delegate to init with --local pre-filled
+    init(
+        project_name=project_name,
+        ai_assistant=ai_assistant,
+        script_type=script_type,
+        ignore_agent_tools=ignore_agent_tools,
+        no_git=no_git,
+        here=here,
+        force=force,
+        skip_tls=False,
+        debug=debug,
+        github_token=None,
+        local=str(repo_root),
+    )
+
 
 @app.command()
 def check():

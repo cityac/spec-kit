@@ -1,3 +1,8 @@
+---
+project_name: "[PROJECT_NAME]"
+project_acronym: "[PROJECT_ACRONYM]"
+---
+
 # [PROJECT_NAME] Constitution
 <!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
 
