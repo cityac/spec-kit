@@ -75,7 +75,7 @@ check_feature_branch() {
         return 0
     fi
 
-    if [[ ! "$branch" =~ ^(feature/([A-Z]+-)?)?[0-9]{3}- ]]; then
+    if [[ ! "$branch" =~ ^(feature/([A-Z0-9]+-)?)?[0-9]{3}- ]]; then
         echo "ERROR: Not on a feature branch. Current branch: $branch" >&2
         echo "Feature branches should be named like: feature/001-feature-name or feature/URA-001-feature-name" >&2
         return 1
