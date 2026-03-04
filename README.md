@@ -267,8 +267,8 @@ Essential commands for the Spec-Driven Development workflow:
 
 | Command                 | Description                                                              |
 | ----------------------- | ------------------------------------------------------------------------ |
-| `/speckit.constitution` | Create or update project governing principles and development guidelines |
-| `/speckit.specify`      | Define what you want to build (requirements and user stories)            |
+| `/speckit.constitution` | Create or update project governing principles and development guidelines. Use `--simple` (or "make it simple") to add immutable Implementation Constraints that enforce minimal, simple code. Once added, the constraints persist through all future constitution edits. |
+| `/speckit.specify`      | Define what you want to build (requirements and user stories). Supports `--simple` flag — if the constitution doesn't have Implementation Constraints yet, adds them automatically before proceeding. |
 | `/speckit.plan`         | Create technical implementation plans with your chosen tech stack        |
 | `/speckit.tasks`        | Generate actionable task lists for implementation                        |
 | `/speckit.implement`    | Execute all tasks to build the feature according to the plan             |
