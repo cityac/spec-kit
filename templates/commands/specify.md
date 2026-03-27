@@ -31,6 +31,7 @@ Given that feature description, do this:
    Before proceeding, check if `.specify/memory/constitution.md` has its identity fields populated:
    - Read the YAML frontmatter and check that `project_name` and `project_acronym` are set to real values (not `[PROJECT_NAME]` / `[PROJECT_ACRONYM]` placeholders)
    - If either field is still a placeholder, run the full `/speckit.constitution` flow first
+   - **Simplicity flag**: If the user includes `--simple`, `--simplify`, or phrases like "make it simple", "simple solution", "keep it simple", "simplify" in their input, and the constitution does NOT already contain a `## Implementation Constraints` section with the `<!-- DO NOT MODIFY -->` comment, run the `/speckit.constitution --simple` flow to add it before continuing
    - Once both fields are populated, continue with step 1
 
 1. **Generate a concise short name** (2-4 words) for the branch:
@@ -241,7 +242,7 @@ When creating this spec from a user prompt:
 - Performance targets: Standard web/mobile app expectations unless specified
 - Error handling: User-friendly messages with appropriate fallbacks
 - Authentication method: Standard session-based or OAuth2 for web apps
-- Integration patterns: RESTful APIs unless specified otherwise
+- Integration patterns: Use project-appropriate patterns (REST/GraphQL for web services, function calls for libraries, CLI args for tools, etc.)
 
 ### Success Criteria Guidelines
 

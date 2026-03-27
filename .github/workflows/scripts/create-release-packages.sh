@@ -6,7 +6,7 @@ set -euo pipefail
 # Usage: .github/workflows/scripts/create-release-packages.sh <version>
 #   Version argument should include leading 'v'.
 #   Optionally set AGENTS and/or SCRIPTS env vars to limit what gets built.
-#     AGENTS  : space or comma separated subset of: claude gemini copilot cursor-agent qwen opencode windsurf codex amp shai bob (default: all)
+#     AGENTS  : space or comma separated subset of: claude gemini copilot cursor-agent qwen opencode windsurf codex kilocode auggie roo codebuddy amp shai kiro-cli agy bob qodercli generic (default: all)
 #     SCRIPTS : space or comma separated subset of: sh ps (default: both)
 #   Examples:
 #     AGENTS=claude SCRIPTS=sh $0 v0.2.0
@@ -203,31 +203,34 @@ build_variant() {
     codebuddy)
       mkdir -p "$base_dir/.codebuddy/commands"
       generate_commands codebuddy md "\$ARGUMENTS" "$base_dir/.codebuddy/commands" "$script" ;;
-    qoder)
+    qodercli)
       mkdir -p "$base_dir/.qoder/commands"
-      generate_commands qoder md "\$ARGUMENTS" "$base_dir/.qoder/commands" "$script" ;;
+      generate_commands qodercli md "\$ARGUMENTS" "$base_dir/.qoder/commands" "$script" ;;
     amp)
       mkdir -p "$base_dir/.agents/commands"
       generate_commands amp md "\$ARGUMENTS" "$base_dir/.agents/commands" "$script" ;;
     shai)
       mkdir -p "$base_dir/.shai/commands"
       generate_commands shai md "\$ARGUMENTS" "$base_dir/.shai/commands" "$script" ;;
-    q)
-      mkdir -p "$base_dir/.amazonq/prompts"
-      generate_commands q md "\$ARGUMENTS" "$base_dir/.amazonq/prompts" "$script" ;;
+    kiro-cli)
+      mkdir -p "$base_dir/.kiro/prompts"
+      generate_commands kiro-cli md "\$ARGUMENTS" "$base_dir/.kiro/prompts" "$script" ;;
     agy)
       mkdir -p "$base_dir/.agent/workflows"
       generate_commands agy md "\$ARGUMENTS" "$base_dir/.agent/workflows" "$script" ;;
     bob)
       mkdir -p "$base_dir/.bob/commands"
       generate_commands bob md "\$ARGUMENTS" "$base_dir/.bob/commands" "$script" ;;
+    generic)
+      mkdir -p "$base_dir/.speckit/commands"
+      generate_commands generic md "\$ARGUMENTS" "$base_dir/.speckit/commands" "$script" ;;
   esac
   ( cd "$base_dir" && zip -r "../spec-kit-template-${agent}-${script}-${NEW_VERSION}.zip" . )
   echo "Created $GENRELEASES_DIR/spec-kit-template-${agent}-${script}-${NEW_VERSION}.zip"
 }
 
 # Determine agent list
-ALL_AGENTS=(claude gemini copilot cursor-agent qwen opencode windsurf codex kilocode auggie roo codebuddy amp shai q agy bob qoder)
+ALL_AGENTS=(claude gemini copilot cursor-agent qwen opencode windsurf codex kilocode auggie roo codebuddy amp shai kiro-cli agy bob qodercli generic)
 ALL_SCRIPTS=(sh ps)
 
 norm_list() {
@@ -274,4 +277,3 @@ done
 
 echo "Archives in $GENRELEASES_DIR:"
 ls -1 "$GENRELEASES_DIR"/spec-kit-template-*-"${NEW_VERSION}".zip
-

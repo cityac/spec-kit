@@ -47,6 +47,21 @@ Follow this execution flow:
    - Preserve heading hierarchy and comments can be removed once replaced unless they still add clarifying guidance.
    - Ensure each Principle section: succinct name line, paragraph (or bullet list) capturing non‑negotiable rules, explicit rationale if not obvious.
    - Ensure Governance section lists amendment procedure, versioning policy, and compliance review expectations.
+   - **Implementation Constraints (opt-in, then immutable)**:
+     - **Trigger**: If the user includes `--simple`, `--simplify`, or phrases like "make it simple", "simple solution", "keep it simple", "simplify" in their input, add the `## Implementation Constraints` section (see below) immediately before `## Governance`.
+     - **Persistence**: If the constitution already contains a `## Implementation Constraints` section with the `<!-- DO NOT MODIFY -->` comment, it MUST be preserved exactly as-is through any update. Never edit, reorder, remove, or rephrase any part of it.
+     - The section content to insert when triggered:
+       ```
+       ## Implementation Constraints
+       <!-- DO NOT MODIFY — this section is immutable and must survive all constitution edits -->
+       - Implement only what this spec explicitly describes. Nothing more.
+       - Do not infer or add implied features, edge case handling, or extensibility hooks.
+       - Prefer inline logic over abstraction unless reuse is explicitly required.
+       - Prefer a single function/module over a class hierarchy unless state management is required.
+       - Do not wrap simple logic in services, managers, or handlers unless the spec names them.
+       - If uncertain between two approaches, choose the one with fewer lines of code.
+       - Flag any decision that adds more than ~20% code beyond the minimal solution and ask before proceeding.
+       ```
 
 4. Consistency propagation checklist (convert prior checklist into active validations):
    - Read `.specify/templates/plan-template.md` and ensure any "Constitution Check" or rules align with updated principles.
@@ -68,6 +83,7 @@ Follow this execution flow:
    - Version line matches report.
    - Dates ISO format YYYY-MM-DD.
    - Principles are declarative, testable, and free of vague language ("should" → replace with MUST/SHOULD rationale where appropriate).
+   - If a `## Implementation Constraints` section exists, verify it is unchanged from the canonical version defined in step 3 above.
 
 7. Write the completed constitution back to `.specify/memory/constitution.md` (overwrite).
 
