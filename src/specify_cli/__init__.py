@@ -26,6 +26,7 @@ Or install globally:
 """
 
 import os
+import textwrap
 import subprocess
 import sys
 import zipfile
@@ -1732,6 +1733,94 @@ def ensure_constitution_from_template(project_path: Path, project_name: str, tra
             console.print(f"[yellow]Warning: Could not initialize constitution: {e}[/yellow]")
 
 
+def ensure_e2e_setup(project_path: Path, tracker: StepTracker | None = None) -> None:
+    """Scaffold Playwright E2E testing infrastructure (all files skip-if-exists)."""
+    step_key = "e2e-setup"
+
+    # 1. Copy e2e-testing-guide.md to .specify/memory/
+    memory_guide = project_path / ".specify" / "memory" / "e2e-testing-guide.md"
+    template_guide = project_path / ".specify" / "templates" / "e2e-testing-guide.md"
+    # Also check the repo-level memory/ directory (for fork-init / local source)
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    repo_guide = repo_root / "memory" / "e2e-testing-guide.md"
+
+    if not memory_guide.exists():
+        source_guide = template_guide if template_guide.exists() else (repo_guide if repo_guide.exists() else None)
+        if source_guide:
+            memory_guide.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_guide, memory_guide)
+
+    # 2. Scaffold Playwright files (all skip-if-exists)
+    files: dict[str, str] = {
+        "playwright.config.ts": textwrap.dedent("""\
+            import { defineConfig } from '@playwright/test';
+
+            export default defineConfig({
+              testDir: './e2e/tests',
+              timeout: 30_000,
+              use: {
+                baseURL: process.env.E2E_BASE_URL || 'http://localhost:3000',
+                screenshot: 'only-on-failure',
+                trace: 'retain-on-failure',
+              },
+              projects: [{ name: 'e2e', use: { browserName: 'chromium' } }],
+            });
+        """),
+        ".env.e2e": textwrap.dedent("""\
+            E2E_BASE_URL=http://localhost:3000
+            E2E_USERNAME=
+            E2E_PASSWORD=
+            E2E_PAUSE=
+        """),
+        "e2e/tests/example.spec.ts": textwrap.dedent("""\
+            import { test, expect } from '@playwright/test';
+
+            test('app loads successfully', async ({ page }) => {
+              await page.goto('/');
+              await expect(page).toHaveTitle(/.+/);
+            });
+        """),
+    }
+    gitkeeps = [
+        "e2e/pages/.gitkeep",
+        "e2e/helpers/.gitkeep",
+    ]
+
+    created: list[str] = []
+    skipped: list[str] = []
+
+    for rel_path, content in files.items():
+        dest = project_path / rel_path
+        if dest.exists():
+            skipped.append(rel_path)
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(content)
+        created.append(rel_path)
+
+    for rel_path in gitkeeps:
+        dest = project_path / rel_path
+        if dest.exists():
+            skipped.append(rel_path)
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("")
+        created.append(rel_path)
+
+    detail_parts: list[str] = []
+    if created:
+        detail_parts.append(f"created {len(created)} files")
+    if skipped:
+        detail_parts.append(f"skipped {len(skipped)} existing")
+    detail = ", ".join(detail_parts) if detail_parts else "nothing to do"
+
+    if tracker:
+        tracker.start(step_key)
+        tracker.complete(step_key, detail)
+    else:
+        console.print(f"[cyan]E2E setup:[/cyan] {detail}")
+
+
 INIT_OPTIONS_FILE = ".specify/init-options.json"
 
 
@@ -2097,6 +2186,7 @@ def init(
     offline: bool = typer.Option(False, "--offline", help="Use assets bundled in the specify-cli package instead of downloading from GitHub (no network access required). Bundled assets will become the default in v0.6.0 and this flag will be removed."),
     preset: str = typer.Option(None, "--preset", help="Install a preset during initialization (by preset ID)"),
     branch_numbering: str = typer.Option(None, "--branch-numbering", help="Branch numbering strategy: 'sequential' (001, 002, ...) or 'timestamp' (YYYYMMDD-HHMMSS)"),
+    e2e: bool = typer.Option(False, "--e2e", help="Scaffold Playwright E2E testing infrastructure"),
 ):
     """
     Initialize a new Specify project.
@@ -2336,6 +2426,8 @@ def init(
         # Add copilot-extras step if copilot is selected
         if selected_ai == "copilot":
             tracker.add("copilot-extras", "Generate copilot prompts & vscode settings")
+        if e2e:
+            tracker.add("e2e-setup", "E2E testing setup")
     else:
         # Determine whether to use bundled assets or download from GitHub (default).
         _core = _locate_core_pack()
@@ -2367,6 +2459,8 @@ def init(
             tracker.add(key, label)
         if ai_skills:
             tracker.add("ai-skills", "Install agent skills")
+        if e2e:
+            tracker.add("e2e-setup", "E2E testing setup")
         for key, label in [
             ("cleanup", "Cleanup"),
             ("git", "Initialize git repository"),
@@ -2429,6 +2523,9 @@ def init(
             ensure_executable_scripts(project_path, tracker=tracker)
 
             ensure_constitution_from_template(project_path, project_name, tracker=tracker)
+
+            if e2e:
+                ensure_e2e_setup(project_path, tracker=tracker)
 
             # Determine skills directory and migrate any legacy Kimi dotted skills.
             migrated_legacy_kimi_skills = 0
@@ -2509,6 +2606,7 @@ def init(
                 "ai_skills": ai_skills,
                 "ai_commands_dir": ai_commands_dir,
                 "branch_numbering": branch_numbering or "sequential",
+                "e2e": e2e,
                 "here": here,
                 "preset": preset,
                 "offline": offline,
@@ -2669,6 +2767,7 @@ def fork_init(
     here: bool = typer.Option(False, "--here", help="Initialize in current directory"),
     force: bool = typer.Option(False, "--force", help="Force merge/overwrite when using --here"),
     debug: bool = typer.Option(False, "--debug", help="Show verbose diagnostic output"),
+    e2e: bool = typer.Option(False, "--e2e", help="Scaffold Playwright E2E testing infrastructure"),
 ):
     """Initialize a project from the local spec-kit fork (no GitHub download).
 
@@ -2677,6 +2776,7 @@ def fork_init(
 
     Examples:
         specify fork-init my-project --ai claude
+        specify fork-init my-project --ai claude --e2e
         specify fork-init . --ai claude --script sh
         specify fork-init --here --ai copilot
     """
@@ -2706,6 +2806,7 @@ def fork_init(
         offline=False,
         preset=None,
         branch_numbering=None,
+        e2e=e2e,
     )
 
 
