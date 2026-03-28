@@ -295,6 +295,10 @@ AGENT_CONFIG = {
     },
 }
 
+AI_ASSISTANT_ALIASES = {
+    "kiro": "kiro-cli",
+}
+
 # Agent command config: maps agent -> (command_folder, file_extension, arg_token)
 # Used by extract_template_from_local() to generate agent-specific command files.
 AGENT_COMMAND_CONFIG = {
@@ -2078,7 +2082,8 @@ def _handle_agent_skills_migration(console: Console, agent_key: str) -> None:
 @app.command()
 def init(
     project_name: str = typer.Argument(None, help="Name for your new project directory (optional if using --here, or use '.' for current directory)"),
-    ai_assistant: str = typer.Option(None, "--ai", help="AI assistant to use: claude, gemini, copilot, cursor-agent, qwen, opencode, codex, windsurf, kilocode, auggie, codebuddy, amp, shai, q, agy, bob, or qoder "),
+    ai_assistant: str = typer.Option(None, "--ai", help=AI_ASSISTANT_HELP),
+    ai_commands_dir: str = typer.Option(None, "--ai-commands-dir", help="Directory for agent command files (required with --ai generic, e.g. .myagent/commands/)"),
     script_type: str = typer.Option(None, "--script", help="Script type to use: sh or ps"),
     ignore_agent_tools: bool = typer.Option(False, "--ignore-agent-tools", help="Skip checks for AI agent tools like Claude Code"),
     no_git: bool = typer.Option(False, "--no-git", help="Skip git repository initialization"),
@@ -2316,6 +2321,8 @@ def init(
     tracker.add("script-select", "Select script type")
     tracker.complete("script-select", selected_script)
 
+    use_github = not offline and not local_path
+
     if local_path:
         for key, label in [
             ("local-copy", "Copy from local source"),
@@ -2332,8 +2339,6 @@ def init(
     else:
         # Determine whether to use bundled assets or download from GitHub (default).
         _core = _locate_core_pack()
-
-        use_github = not offline and not local_path
 
         if use_github and _core is not None:
             console.print(
@@ -2687,6 +2692,7 @@ def fork_init(
     init(
         project_name=project_name,
         ai_assistant=ai_assistant,
+        ai_commands_dir=None,
         script_type=script_type,
         ignore_agent_tools=ignore_agent_tools,
         no_git=no_git,
@@ -2696,6 +2702,10 @@ def fork_init(
         debug=debug,
         github_token=None,
         local=str(repo_root),
+        ai_skills=False,
+        offline=False,
+        preset=None,
+        branch_numbering=None,
     )
 
 
