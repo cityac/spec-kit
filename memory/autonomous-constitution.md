@@ -3,22 +3,40 @@
 After every `/speckit.specify` run, before proceeding to planning, the agent MUST:
 
 1. Re-read the generated `spec.md` in full.
-2. Adopt the role of a skeptical Product Manager and identify all requirements that are:
+2. **Run multi-agent consensus review** by invoking `/stochastic-multi-agent-consensus` with the following prompt:
+
+   ```
+   Review this feature spec for a QR icebreaker bar product. Identify all requirements that are:
    - Ambiguous (could be interpreted in more than one way)
    - Missing (implied by context but not stated)
    - Contradictory (two requirements conflict with each other)
-3. For each issue found, resolve it using the most conservative and safe interpretation.
+
+   For each issue found, propose a resolution using the most conservative and safe interpretation.
+
+   Spec:
+   <paste full spec.md content here>
+   ```
+
+   Use these settings:
+   - **N**: 5 agents (sufficient for spec review, cost-effective)
+   - **model**: sonnet
+   - **output_format**: recommendation
+
+3. Parse the consensus report. For each **consensus item** (agreed by 3+/5 agents): adopt the resolution directly. For each **divergence** (split decision): use the most conservative interpretation. For **outliers**: include only if they identify a genuine gap.
+
 4. Document every resolution in `.specify/specs/<feature>/decisions.md` using this format:
 
    ```
    ### Decision: <short title>
    **Issue:** <what was ambiguous/missing/contradictory>
    **Resolution:** <what was decided>
-   **Rationale:** <why this interpretation was chosen>
+   **Rationale:** <why this interpretation — include consensus level: e.g., "5/5 agents agreed" or "3/5 consensus, conservative interpretation chosen">
+   **Consensus:** <consensus/divergence/outlier> (<N>/5 agents)
    ```
 
-5. Do NOT ask for human input. Do NOT pause. Resolve all issues autonomously and document them.
-6. Only proceed to `/speckit.plan` once `decisions.md` has been written and all open issues are resolved.
+5. Save the raw consensus report to `.specify/specs/<feature>/consensus-report.md`.
+6. Do NOT ask for human input. Do NOT pause. Resolve all issues autonomously and document them.
+7. Only proceed to `/speckit.plan` once `decisions.md` has been written and all open issues are resolved.
 
 ## Spec Quality Gate
 
@@ -62,7 +80,8 @@ Before executing `/speckit.implement`, assert ALL of the following. If any asser
 
 - [ ] `constitution.md` exists and was referenced during spec and planning phases.
 - [ ] `spec.md` exists and has no unchecked checklist items.
-- [ ] `decisions.md` exists and documents all assumption resolutions.
+- [ ] `decisions.md` exists and documents all assumption resolutions (with consensus levels).
+- [ ] `consensus-report.md` exists (multi-agent review was performed).
 - [ ] `quality-report.md` exists and shows all items PASSING.
 - [ ] `tasks.md` passed all structural validations (coverage, structure, ordering, autonomy).
 - [ ] No `blockers.md` exists with unresolved items.
