@@ -60,6 +60,13 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 ## Outline
 
+0. **Query episodic memory** (if `.specify/memory/lessons.jsonl` exists):
+   - Read `lessons.jsonl` and scan for lessons relevant to this feature
+   - Match by category and keyword overlap with the spec
+   - If relevant lessons found: factor them into planning decisions (avoid repeating past mistakes)
+   - Display relevant warnings before proceeding
+   - If no relevant lessons or file doesn't exist: skip silently
+
 1. **Setup**: Run `{SCRIPT}` from repo root and parse JSON for FEATURE_SPEC, IMPL_PLAN, SPECS_DIR, BRANCH. For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
 
 2. **Load context**: Read FEATURE_SPEC and `/memory/constitution.md`. Load IMPL_PLAN template (already copied).
@@ -73,9 +80,28 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Phase 1: Update agent context by running the agent script
    - Re-evaluate Constitution Check post-design
 
-4. **Stop and report**: Command ends after Phase 2 planning. Report branch, IMPL_PLAN path, and generated artifacts.
+4. **Plan Quality Validation**: Before reporting, self-validate the plan. Generate a `plan-quality-checklist.md` in FEATURE_DIR and validate against it:
 
-5. **Check for extension hooks**: After reporting, check if `.specify/extensions.yml` exists in the project root.
+   **Checklist items:**
+   - [ ] Every requirement in spec.md is addressable by at least one design decision
+   - [ ] Every architectural decision in research.md has a rationale (not just "we chose X")
+   - [ ] Technical Context has zero NEEDS CLARIFICATION remaining
+   - [ ] Data model covers all entities implied by spec user stories
+   - [ ] No constitution gate violations remain unjustified
+   - [ ] Interface contracts (if any) match spec acceptance criteria
+   - [ ] No circular dependencies in the design
+
+   **Validation loop** (max 3 iterations):
+   1. Score each item PASS or FAIL with one-line rationale
+   2. For each FAIL: fix the relevant plan artifact immediately
+   3. Re-score until all PASS or 3 iterations exhausted
+   4. If still failing after 3 iterations: note unresolved items in the report (do not halt — plan is still usable)
+
+   Write final `plan-quality-checklist.md` with all scores.
+
+5. **Stop and report**: Command ends after Phase 2 planning. Report branch, IMPL_PLAN path, generated artifacts, and plan quality score (N/N passed).
+
+6. **Check for extension hooks**: After reporting, check if `.specify/extensions.yml` exists in the project root.
    - If it exists, read it and look for entries under the `hooks.after_plan` key
    - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
    - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.

@@ -142,19 +142,35 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 6. Execute implementation following the task plan:
    - **Phase-by-phase execution**: Complete each phase before moving to the next
-   - **Respect dependencies**: Run sequential tasks in order, parallel tasks [P] can run together  
+   - **Respect dependencies**: Run sequential tasks in order, parallel tasks [P] can run together
    - **Follow TDD approach**: Execute test tasks before their corresponding implementation tasks
    - **File-based coordination**: Tasks affecting the same files must run sequentially
    - **Validation checkpoints**: Verify each phase completion before proceeding
 
-7. Implementation execution rules:
+7. **Per-Task Validation Gate** (runs after EVERY task, <10s):
+
+   After completing each task, run a fast validation pass. Detect which tools are available and run what applies:
+
+   | Check | Tool | Condition |
+   |-------|------|-----------|
+   | Lint | `ruff check` / `eslint` / `golangci-lint` | Corresponding config exists |
+   | Type check | `tsc --noEmit` / `mypy` / `pyright` | TypeScript or Python project |
+   | Fast tests | `pytest -x --last-failed` / `jest --changedSince=HEAD` | Test files were modified by this task |
+
+   **Rules:**
+   - If gate fails: fix the issue immediately before proceeding to next task. Max 2 fix attempts per task.
+   - If still failing after 2 attempts: log the failure, mark task as `[!]` (needs attention), continue to next task.
+   - Do NOT skip the gate — error cascading across 25 tasks is the #1 cause of implementation failure.
+   - Gate is optional for setup tasks (T001-T003 typically) that install dependencies.
+
+8. Implementation execution rules:
    - **Setup first**: Initialize project structure, dependencies, configuration
    - **Tests before code**: If you need to write tests for contracts, entities, and integration scenarios
    - **Core development**: Implement models, services, CLI commands, endpoints
    - **Integration work**: Database connections, middleware, logging, external services
    - **Polish and validation**: Unit tests, performance optimization, documentation
 
-8. Progress tracking and error handling:
+9. Progress tracking and error handling:
    - Report progress after each completed task
    - Halt execution if any non-parallel task fails
    - For parallel tasks [P], continue with successful tasks, report failed ones
@@ -162,7 +178,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Suggest next steps if implementation cannot proceed
    - **IMPORTANT** For completed tasks, make sure to mark the task off as [X] in the tasks file.
 
-9. Completion validation:
+10. Completion validation:
    - Verify all required tasks are completed
    - Check that implemented features match the original specification
    - Validate that tests pass and coverage meets requirements
@@ -171,7 +187,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit.tasks` first to regenerate the task list.
 
-10. **Check for extension hooks**: After completion validation, check if `.specify/extensions.yml` exists in the project root.
+11. **Check for extension hooks**: After completion validation, check if `.specify/extensions.yml` exists in the project root.
     - If it exists, read it and look for entries under the `hooks.after_implement` key
     - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
     - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.

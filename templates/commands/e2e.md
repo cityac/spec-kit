@@ -135,17 +135,23 @@ For each failure:
 
 1. **Read the error output** carefully — Playwright gives line numbers and expected/received values
 2. **Check screenshots** if available in the test results directory
-3. **Diagnose the root cause**:
-   - **Locator not found** → selector is wrong, element structure changed, or timing issue
-   - **Timeout** → element doesn't appear; check if the feature renders correctly, add more wait time
-   - **Assertion failed** → CSS value or element count is wrong; verify against actual DOM
-   - **Test infrastructure** → auth state expired, env vars missing, app not running
+3. **Classify the failure** (failure attribution — critical for pipeline routing):
 
-4. **Fix the TEST code** (never fix app code in this skill):
-   - Update selectors to match actual DOM
-   - Add/increase wait times
-   - Fix assertion expectations
-   - Add `test.skip()` for infeasible preconditions
+   | `failure_class` | Symptoms | Action |
+   |-----------------|----------|--------|
+   | `spec-ambiguity` | Test expectation doesn't match what was built because spec was unclear | Write re-spec request → bounce to `/speckit.specify` |
+   | `plan-gap` | Feature is missing a component the test expects (e.g., no loading state) | Write re-plan request → bounce to `/speckit.plan` |
+   | `task-decomposition` | Component exists but was built wrong (task was underspecified) | Fix implementation directly |
+   | `implementation-bug` | Code bug — logic error, typo, wrong selector | Fix test or flag app bug |
+   | `infra` | Auth expired, env missing, app not running, Playwright config issue | Fix test infrastructure |
+
+4. **Route based on failure class**:
+   - **`spec-ambiguity` or `plan-gap`**: Write `{FEATURE_DIR}/blockers.md` with `failure_class` field and a `respec_request` or `replan_request` section. Do NOT patch the test — the problem is upstream. Cap at **one round-trip** per feature. If the same `failure_class` appears twice consecutively → escalate to human halt.
+   - **`task-decomposition` or `implementation-bug` or `infra`**: Fix the TEST code (never fix app code in this skill):
+     - Update selectors to match actual DOM
+     - Add/increase wait times
+     - Fix assertion expectations
+     - Add `test.skip()` for infeasible preconditions
 
 5. **Re-run** the tests
 
@@ -178,9 +184,15 @@ Write `{FEATURE_DIR}/blockers.md`:
 # E2E Test Blockers
 
 ## Failing Tests
-| Test | Error | Attempts |
-|------|-------|----------|
-| US1-AC2: ... | Timeout waiting for ... | 3 |
+| Test | Error | Failure Class | Attempts |
+|------|-------|---------------|----------|
+| US1-AC2: ... | Timeout waiting for ... | implementation-bug | 3 |
+
+## Failure Attribution
+- failure_class: [spec-ambiguity | plan-gap | task-decomposition | implementation-bug | infra]
+- upstream_cause: [if spec-ambiguity or plan-gap — what's missing/unclear in spec or plan]
+- respec_request: [if spec-ambiguity — what needs clarification]
+- replan_request: [if plan-gap — what component is missing]
 
 ## Root Cause Analysis
 - [explanation of why the test can't pass]

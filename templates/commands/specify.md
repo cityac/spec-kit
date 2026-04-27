@@ -68,6 +68,18 @@ Given that feature description, do this:
    - **Simplicity flag**: If the user includes `--simple`, `--simplify`, or phrases like "make it simple", "simple solution", "keep it simple", "simplify" in their input, and the constitution does NOT already contain a `## Implementation Constraints` section with the `<!-- DO NOT MODIFY -->` comment, run the `/speckit.constitution --simple` flow to add it before continuing
    - Once both fields are populated, continue with step 1
 
+0.5. **Query episodic memory** (if `.specify/memory/lessons.jsonl` exists):
+   - Read `lessons.jsonl` and scan for lessons relevant to the current feature description
+   - Match by category (e.g., if feature touches auth, look for `"category": "auth"` lessons)
+   - Match by keyword overlap between lesson text and feature description
+   - If relevant lessons found: display them as warnings before proceeding:
+     ```
+     ⚠ Lessons from past features:
+     - [FEATURE-ID] "lesson text" (severity)
+     ```
+   - Factor these into the spec — avoid known pitfalls, address known edge cases
+   - If no relevant lessons or file doesn't exist: skip silently
+
 1. **Generate a concise short name** (2-4 words) for the branch:
    - Analyze the feature description and extract the most meaningful keywords
    - Create a 2-4 word short name that captures the essence of the feature

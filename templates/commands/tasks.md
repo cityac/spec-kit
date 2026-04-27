@@ -89,15 +89,43 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Parallel execution examples per story
    - Implementation strategy section (MVP first, incremental delivery)
 
-5. **Report**: Output path to generated tasks.md and summary:
+5. **Structural Validation**: Before reporting, validate `tasks.md` against these rules:
+
+   **Coverage:**
+   - Every user story in `spec.md` maps to at least one task
+   - Every acceptance criterion is addressed by at least one task
+
+   **Structure:**
+   - Every task specifies at least one target file path
+   - Every task has a clear success condition (implied by description)
+   - No open questions or unresolved references
+   - All tasks follow the checklist format (checkbox, ID, labels, file paths)
+
+   **Ordering:**
+   - No task depends on a later task
+   - Parallel tasks `[P]` don't share write targets
+
+   **Autonomy:**
+   - Every task can be implemented without human input
+
+   **Validation loop** (max 3 iterations):
+   1. Score each rule PASS or FAIL
+   2. For each FAIL: fix `tasks.md` immediately
+   3. Re-score until all PASS or 3 iterations exhausted
+   4. If a user story has zero tasks after 3 iterations: halt with error
+
+   Write `task-validation-report.md` in FEATURE_DIR with results.
+
+6. **Report**: Output path to generated tasks.md and summary:
    - Total task count
    - Task count per user story
    - Parallel opportunities identified
    - Independent test criteria for each story
    - Suggested MVP scope (typically just User Story 1)
+   - Structural validation: N/N rules passed
    - Format validation: Confirm ALL tasks follow the checklist format (checkbox, ID, labels, file paths)
 
-6. **Check for extension hooks**: After tasks.md is generated, check if `.specify/extensions.yml` exists in the project root.
+7. **Check for extension hooks**: After tasks.md is generated, check if `.specify/extensions.yml` exists in the project root.
    - If it exists, read it and look for entries under the `hooks.after_tasks` key
    - If the YAML cannot be parsed or is invalid, skip hook checking silently and continue normally
    - Filter out hooks where `enabled` is explicitly `false`. Treat hooks without an `enabled` field as enabled by default.

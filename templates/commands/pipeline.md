@@ -13,12 +13,26 @@ $ARGUMENTS
 
 The user input is the **feature description** (required). Optional flags:
 - `--commit` — after implementation, create a git commit, push, and open a PR
+- `--scope XS|S|M|L` — override scope classification (default: M). Controls which stages run:
 
-Parse the arguments: extract the feature description text and whether `--commit` is present.
+| Scope | Stages | Use Case |
+|-------|--------|----------|
+| **XS** | implement → commit | Typo fix, config tweak, one-file change. No spec needed. |
+| **S** | specify → implement → commit | Small feature, clear scope. Skip plan/tasks/clarification/quality gate. |
+| **M** | Full pipeline (default) | Standard feature. All stages run. |
+| **L** | Full pipeline + cost/risk gate | Large feature. All stages + explicit effort review before implement. |
+
+Parse the arguments: extract the feature description, `--commit` flag, and `--scope` value (default M if not provided).
 
 ## Goal
 
 Run the complete speckit pipeline autonomously — from specification through implementation — with convention-based quality gates. No human checkpoints. Halts only on unresolvable blockers (writes `blockers.md`).
+
+The pipeline adapts its depth based on `--scope`:
+- **XS**: Jump straight to Step 11 (implement). No spec, plan, or tasks.
+- **S**: Run Steps 2, 3, then jump to Step 11 (implement). Skip clarification, quality gate, plan, tasks.
+- **M**: Run all steps (default, current behavior).
+- **L**: Run all steps + Step 10.5 (cost/risk gate before implement).
 
 ## Execution Steps
 
@@ -28,17 +42,30 @@ Run `{SCRIPT}` once from repo root to get `REPO_ROOT`.
 
 Extract the feature description and `--commit` flag from user input.
 
-### 2. Specify
+### 1.5. Scope Routing
+
+Based on the `--scope` value, determine which steps to execute:
+
+- **XS**: Skip to Step 11 (Implement). The feature description IS the implementation instruction. No feature branch, no spec directory — just edit, test, done.
+- **S**: Run Step 2 (Specify) → Step 3 (Resolve Feature Directory) → Step 11 (Implement) → Step 12 (E2E) → Step 13 (Commit). Skip Steps 4-10.
+- **M**: Run all steps 2-13 as written below (default).
+- **L**: Run all steps 2-13 + Step 10.5 (Cost/Risk Gate).
+
+For **XS scope**: create a minimal feature branch (`git checkout -b fix/{slugified-description}`) and skip directly to Step 11. After implementation, run any fast validation (lint, type check) and proceed to Step 13 if `--commit`.
+
+For all other scopes, continue to Step 2.
+
+### 2. Specify (skip if XS)
 
 Run `/speckit.specify {feature-description}`.
 
 This creates the feature branch, spec directory, and `spec.md`.
 
-### 3. Resolve Feature Directory
+### 3. Resolve Feature Directory (skip if XS)
 
 Re-run `{SCRIPT}` (without `--require-tasks`) to get `FEATURE_DIR` now that the feature branch and spec exist.
 
-### 4. Convention Detection
+### 4. Convention Detection (skip if XS or S)
 
 Check which autonomous infrastructure is available:
 
@@ -53,7 +80,7 @@ E2E_SKILL = /speckit.e2e is available as a skill
 
 Each gate is independently enabled. Missing infrastructure means that gate is skipped (not an error).
 
-### 5. Self-Clarification Loop (if AUTONOMOUS_CONSTITUTION)
+### 5. Self-Clarification Loop (if AUTONOMOUS_CONSTITUTION; skip if XS or S)
 
 Read `autonomous-constitution.md` (or the autonomous sections in `constitution.md`) for the clarification protocol.
 
@@ -63,7 +90,7 @@ Read `autonomous-constitution.md` (or the autonomous sections in `constitution.m
 4. Write all resolutions to `{FEATURE_DIR}/decisions.md` (use `decisions-template.md` if available).
 5. Do NOT ask for human input. Resolve autonomously.
 
-### 6. Quality Gate Loop (if QUALITY_GATE)
+### 6. Quality Gate Loop (if QUALITY_GATE; skip if XS or S)
 
 Read `.specify/memory/quality-gate.md`.
 
@@ -74,39 +101,21 @@ Read `.specify/memory/quality-gate.md`.
 
 If after 3 full cycles any item still fails: write `{FEATURE_DIR}/blockers.md` and **halt**.
 
-### 7. Plan
+### 7. Plan (skip if XS or S)
 
 Run `/speckit.plan`.
 
-### 8. Tasks
+### 8. Tasks (skip if XS or S)
 
 Run `/speckit.tasks`.
 
-### 9. Task Structural Validation (if AUTONOMOUS_CONSTITUTION)
+### 9. Task Structural Validation (skip if XS or S)
 
-Read the Task Structural Validation section from `autonomous-constitution.md` (or `constitution.md`).
+Structural validation now runs inside `/speckit.tasks` (Step 5 of tasks.md). Check that `{FEATURE_DIR}/task-validation-report.md` exists and all rules passed.
 
-Validate `tasks.md` against:
+If the report shows failures: write `{FEATURE_DIR}/blockers.md` and **halt**.
 
-**Coverage:**
-- Every user story in `spec.md` maps to at least one task.
-- Every acceptance criterion is addressed by at least one task.
-
-**Structure:**
-- Every task specifies at least one target file path.
-- Every task has a clear success condition.
-- No open questions or unresolved references.
-
-**Ordering:**
-- No dependency on a later task.
-- Parallel tasks `[P]` don't share write targets.
-
-**Autonomy:**
-- Every task can be implemented without human input.
-
-If validation fails: fix `tasks.md` and re-validate. If still failing after 3 cycles: write `{FEATURE_DIR}/blockers.md` and **halt**.
-
-### 10. Pre-Flight Assertions (if AUTONOMOUS_CONSTITUTION)
+### 10. Pre-Flight Assertions (if AUTONOMOUS_CONSTITUTION; skip if XS or S)
 
 Read the Pre-Flight Assertions section. Assert ALL of:
 
@@ -118,6 +127,36 @@ Read the Pre-Flight Assertions section. Assert ALL of:
 - [ ] No `blockers.md` with unresolved items
 
 If any fail: write `{FEATURE_DIR}/blockers.md` and **halt**.
+
+### 10.5. Cost / Risk Gate (L scope only)
+
+**Only runs when `--scope L`** or when auto-detected thresholds are exceeded.
+
+Compute from `tasks.md`:
+- **Total task count**
+- **Distinct files touched** (union of all target file paths)
+- **Parallel-able count** (tasks marked `[P]`)
+- **Sensitive paths**: any task targeting files matching these patterns:
+  - `**/migrations/**`, `**/migrate*`
+  - `**/auth/**`, `**/middleware/auth*`
+  - `**/payment*`, `**/billing*`, `**/stripe*`
+  - `**/deploy*`, `**/.github/**`, `**/ci*`, `**/.gitlab*`
+  - `**/.env*`, `**/secrets*`
+
+**Hard gate** — halt with `{FEATURE_DIR}/effort-report.md` if ANY of:
+- `total_tasks > 25` AND scope was not explicitly set to L (i.e., was auto-classified or defaulted to M)
+- Any sensitive path matched AND scope was not explicitly set to L
+
+`effort-report.md` contains:
+```
+## Effort & Risk Report
+- Total tasks: N
+- Files touched: N
+- Sensitive paths: [list or "none"]
+- Recommendation: [proceed / review with human / reduce scope]
+```
+
+If scope IS explicitly L (user or productowner pre-approved): log the report but do NOT halt.
 
 ### 11. Implement
 
@@ -132,9 +171,20 @@ Run `/speckit.implement`.
 
 Then run `/speckit.e2e`.
 
-If tests fail after 3 retry cycles: write `{FEATURE_DIR}/blockers.md` and **halt**.
+If E2E writes `blockers.md`, check the `failure_class` field:
+
+- **`spec-ambiguity`**: Re-run `/speckit.specify` with the `respec_request` from blockers.md, then restart from Step 7 (Plan). Cap at **one round-trip** — if the same class recurs, halt.
+- **`plan-gap`**: Re-run `/speckit.plan` with the `replan_request`, then restart from Step 8 (Tasks). Cap at **one round-trip**.
+- **`task-decomposition` / `implementation-bug` / `infra`**: Standard halt — write blockers.md and stop.
 
 **Skip** if any condition is false (not an error — just skip silently).
+
+### 12.5. AI Code Review (skip if XS)
+
+Run `/speckit.review`.
+
+If review reports any FAIL scores: read `{FEATURE_DIR}/blockers.md` and **halt** for human review.
+If review reports only PASS/WARN: continue to commit.
 
 ### 13. Commit and PR (if --commit flag)
 
@@ -144,15 +194,43 @@ If tests fail after 3 retry cycles: write `{FEATURE_DIR}/blockers.md` and **halt
 
 If `/commit` skill is not available, fall back to manual `git add` + `git commit`.
 
+### 13.5. Collect Pipeline Metrics
+
+Write `{FEATURE_DIR}/pipeline-metrics.json` with timing and stats for each stage that ran:
+
+```json
+{
+  "feature_id": "{FEATURE_ID}",
+  "scope": "{XS|S|M|L}",
+  "stages": {
+    "specify": {"ran": true, "files_created": ["spec.md"]},
+    "clarify": {"ran": true, "decisions_count": 5},
+    "quality_gate": {"ran": true, "iterations": 1, "all_pass": true},
+    "plan": {"ran": true, "files_created": ["plan.md", "research.md", "data-model.md"]},
+    "tasks": {"ran": true, "task_count": 18, "parallel_count": 6},
+    "implement": {"ran": true, "files_modified": 14, "tasks_completed": 18, "tasks_flagged": 0},
+    "e2e": {"ran": false, "reason": "backend-only"},
+    "review": {"ran": true, "pass": 5, "warn": 1, "fail": 0},
+    "commit": {"ran": true, "pr_url": "..."}
+  },
+  "fix_iterations": 0,
+  "halted": false,
+  "ts": "YYYY-MM-DDTHH:MM:SSZ"
+}
+```
+
+Only include stages that actually ran. Omit stages that were skipped due to scope.
+
 ### 14. Report
 
 Display a summary of what was done:
 
 ```
 ## Pipeline Complete: {feature-description}
+## Scope: {scope} (XS|S|M|L)
 
 ### Steps Executed
-- [x] Specify — spec.md created
+- [x] Specify — spec.md created  [or: skipped — XS scope]
 - [x] Self-clarification — decisions.md ({N} decisions)  [or: skipped — no autonomous constitution]
 - [x] Quality gate — all items PASS  [or: skipped — no quality-gate.md]
 - [x] Plan — plan.md created
@@ -161,6 +239,8 @@ Display a summary of what was done:
 - [x] Pre-flight — all assertions pass  [or: skipped]
 - [x] Implement — all tasks executed
 - [x] E2E — tests pass  [or: skipped — no playwright config / backend-only]
+- [x] Review — N/6 PASS, N/6 WARN  [or: skipped — XS scope]
+- [x] Metrics — pipeline-metrics.json written
 - [x] Commit + PR — {PR_URL}  [or: skipped — no --commit flag]
 
 ### Artifacts
