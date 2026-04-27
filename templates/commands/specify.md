@@ -82,17 +82,28 @@ Given that feature description, do this:
 
 2. **Create the feature branch** by running the script with `--short-name` (and `--json`). In sequential mode, do NOT pass `--number` — the script auto-detects the next available number. In timestamp mode, the script generates a `YYYYMMDD-HHMMSS` prefix automatically:
 
-   **Branch numbering mode**: Before running the script, check if `.specify/init-options.json` exists and read the `branch_numbering` value.
+   **Ticket ID detection (highest priority — overrides all numbering modes)**: Before checking `branch_numbering`, scan the feature description for a roadmap ticket ID:
+   - Pattern: description starts with `[A-Z]+-\d+` (e.g., `ALP-071`, `URA-023`, `PROJ-5`)
+   - If matched, extract the numeric portion and pass `--number <N>` to the script
+   - Examples:
+     - `ALP-071 Server-Side Chat History` → `--number 71`
+     - `URA-023 Add OAuth integration` → `--number 23`
+   - This ensures the branch uses the exact roadmap ticket number (e.g., `feature/ALP-071-server-side-chat-history`)
+   - When a ticket ID is detected, skip the branch numbering mode check below
+
+   **Branch numbering mode** (used only when no ticket ID is detected): Before running the script, check if `.specify/init-options.json` exists and read the `branch_numbering` value.
    - If `"timestamp"`, add `--timestamp` (Bash) or `-Timestamp` (PowerShell) to the script invocation
    - If `"sequential"` or absent, do not add any extra flag (default behavior)
 
    - Bash example: `{SCRIPT} --json --short-name "user-auth" "Add user authentication"`
+   - Bash (ticket ID): `{SCRIPT} --json --number 71 --short-name "server-side-chat-history" "ALP-071 Server-Side Chat History"`
    - Bash (timestamp): `{SCRIPT} --json --timestamp --short-name "user-auth" "Add user authentication"`
    - PowerShell example: `{SCRIPT} -Json -ShortName "user-auth" "Add user authentication"`
+   - PowerShell (ticket ID): `{SCRIPT} -Json -Number 71 -ShortName "server-side-chat-history" "ALP-071 Server-Side Chat History"`
    - PowerShell (timestamp): `{SCRIPT} -Json -Timestamp -ShortName "user-auth" "Add user authentication"`
 
    **IMPORTANT**:
-   - Do NOT pass `--number` — the script determines the correct next number automatically
+   - Pass `--number` ONLY when a ticket ID is detected in the description (see above). Otherwise, do NOT pass `--number` — let the script auto-detect the next number.
    - Always include the JSON flag (`--json` for Bash, `-Json` for PowerShell) so the output can be parsed reliably
    - You must only ever run this script once per feature
    - The JSON is provided in the terminal as output - always refer to it to get the actual content you're looking for
